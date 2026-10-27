@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "twincat-readonly-demo": {
+      "command": "twincat-mcp",
+      "args": ["--demo"]
+    }
+  }
+}

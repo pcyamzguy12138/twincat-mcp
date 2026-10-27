@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "amsNetId": "0.0.0.0.0.0",
+  "adsPort": 851,
+  "timeoutMs": 1000,
+  "symbols": ["Demo.Counter", "Demo.Ready", "Demo.Value"]
+}

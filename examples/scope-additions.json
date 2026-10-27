@@ -1,0 +1,8 @@
+[
+  {
+    "symbol": "Demo.NewValue",
+    "data_type": "REAL64",
+    "template_symbol": "Demo.TemplateValue",
+    "comment": "Synthetic example; replace with a confirmed symbol in your own project"
+  }
+]

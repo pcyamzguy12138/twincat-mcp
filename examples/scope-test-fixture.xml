@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic unit-test fixture only, not a complete vendor-generated project. -->
+<ScopeProject>
+  <SubMember>
+    <DataPool>
+      <SubMember>
+        <AdsAcquisition>
+          <Guid>33333333-3333-4333-8333-333333333333</Guid>
+          <Name>Demo.TemplateValue</Name>
+          <SymbolName>Demo.TemplateValue</SymbolName>
+          <Comment>Synthetic floating-point template</Comment>
+          <SortPriority>1</SortPriority>
+          <Title>DemoTemplate</Title>
+          <DataType>REAL64</DataType>
+          <SymbolBased>true</SymbolBased>
+          <IndexOffset>123</IndexOffset>
+          <FileHandle>456</FileHandle>
+          <ServerHandle>789</ServerHandle>
+        </AdsAcquisition>
+      </SubMember>
+    </DataPool>
+  </SubMember>
+</ScopeProject>

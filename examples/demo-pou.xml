@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="DemoProgram" Id="{11111111-1111-4111-8111-111111111111}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM DemoProgram
+VAR
+    counter : DINT := 0;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[counter := counter + 1;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
