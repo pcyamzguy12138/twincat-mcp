@@ -6,6 +6,9 @@
 | --- | --- |
 | `.TcPOU` / `POU` | 顶层 `Declaration`、`Implementation/ST` |
 | POU 内的 `Method` | 指定名称的方法声明、ST 实现 |
+| POU 内的 `Action` | ST 实现 |
+| POU 内的 `Property` | 属性声明、Get/Set 的声明和 ST 实现 |
+| `.TcIO` / `Itf` | 接口声明、方法和属性声明 |
 | `.TcGVL` / `GVL` | `Declaration` |
 | `.TcDUT` / `DUT` | `Declaration` |
 
@@ -28,6 +31,10 @@
 ```
 
 `method` 为 null 时选择顶层，指定名字时只选同名方法。每次只能改一个区段。
+也可改用 `member` 明确选择 `Method:Reset`、`Action:Init`、`Property:Value`、
+`Property:Value/Get` 或 `Property:Value/Set`；不能同时传入 `method` 和 `member`。
+`preview_source_batch` 支持多个不同区段，并要求 `expected_sha256` 匹配输入；
+任何一项失败则不返回候选。工程级多文件预览见 [工程工具](engineering.md)。
 先用 `inspect_source` 看可编辑区段；不存在、同名歧义、多个 CDATA 拼接或非 ST 实现会拒绝修改。
 
 ## 保存与验证
@@ -39,7 +46,7 @@
 
 XML 验证通过不代表 ST 语法、类型、继承关系、任务调用或运动逻辑正确。
 此工具不新增对象、不生成对象 GUID、不修改 `.plcproj` 引用，也不修改 NC、轴配置、Boot 文件或在线程序。
-Property、Action、FBD/LD/SFC 图形实现和二进制/加密受保护对象不在本版本支持范围。
+FBD/LD/SFC 图形实现和二进制/加密受保护对象不在本版本支持范围。
 受保护文件需由有权限的工程维护者在 XAE 中正常导出可读源码；本工具不解密或绕过保护。
 
 拒绝 DTD/实体声明、过深 XML、NUL、超过 1 MiB 的文档，以及含 `]]>` 的替换正文。

@@ -2,6 +2,9 @@
 
 TwinCAT ADS 只读诊断、离线源码编辑预览与 Scope 候选生成的本地 MCP 服务。
 
+当前开发版正在补齐工程、Scope 和只读诊断能力；进度及剩余验收见 [ROADMAP](docs/ROADMAP.md)。
+新增工程/TMC 检索、多区段修改预览及完整 Scope 生成，尚未宣称整个扩展已完成。
+
 Read-only ADS diagnostics and offline TwinCAT source-edit previews through MCP stdio.
 Independent community tooling; not an official Beckhoff product.
 
@@ -32,9 +35,19 @@ MCP 客户端配置参考 [examples/mcp-client.example.json](examples/mcp-client
 | `preview_source_edit` | 替换一个 ST 声明或正文区段，返回新 XML 和统一差异，不写任何文件 |
 | `inspect_scope` | 查看 Scope XML 中的采集符号和类型 |
 | `create_scope_candidate` | 从使用者的 Scope 模板克隆新增采集项，返回候选 XML 和精确差异 |
+| `preview_source_batch` | 带源哈希检查的多个 ST 区段修改预览 |
+| `inspect_tmc` / `inspect_tmc_type` | 导出符号浏览与结构、数组、枚举等类型查询 |
+| `generate_scope_project` | 通过本机 Scope API 生成带图表及绑定的完整 YT 工程 |
+| `plan_scope_from_tmc` | 把明确选择的 TMC 叶变量转换为 Scope 信号清单 |
+
+指定 `--project-root <只读工程目录>` 后，还可使用 `inspect_project`、
+`read_project_source`、`search_project`、`inspect_project_references`、
+`preview_project_edits`、`browse_project_symbols` 和 `inspect_project_type`。
+路径范围、搜索证据和格式限制见 [工程工具](docs/engineering.md)。
 
 源码工具的输入是文本，不接受磁盘路径。支持范围、编码保存规则和受保护对象边界见 [源码格式说明](docs/source-format.md)。
-Scope 生成要求使用者提供同类型采集模板，不编造厂商格式；不生成图表通道绑定。见 [Scope 生成说明](docs/scope-generation.md)。
+增补 Scope 使用同类型采集模板；完整新建使用安装的厂商 API 并验证通道绑定。
+两种路径均不编造厂商格式。见 [Scope 生成说明](docs/scope-generation.md)。
 
 ## 真实只读采集（需自行配置）
 

@@ -1,5 +1,43 @@
 # Scope 候选生成
 
+## 完整新建工程（开发版新增）
+
+`generate_scope_project` 调用本机已安装的 Beckhoff Scope API 创建 YT 工程，
+返回 `.tcscopex` 和 `.tcmproj` 两份 XML 文本，包含图表、轴组、通道及采集绑定。
+它不启动录波、不连接目标，也不保存到使用者的工程目录。
+
+需要 Windows 和默认安装位置的 TE130x Scope API。不附带厂商 DLL，
+不绕过 PowerShell 执行策略。最多 128 个显式信号，每项须提供：
+
+```json
+{
+  "symbol": "Demo.Value", "scope_type": "REAL64",
+  "ams_net_id": "0.0.0.0.0.0", "ads_port": 851,
+  "chart": "Values", "axis": "Position"
+}
+```
+
+零 Net ID 仅为离线占位。目标地址须由使用者明确填写。
+采样使用 `UseTaskSampleTime`，其余显示/录制参数保留本机厂商默认值。
+相同目标/端口/符号拒绝重复；相同符号在不同目标可独立生成。
+厂商可能自动给重名轴组添加后缀，返回的 `groups` 显示请求名称与实际名称。
+
+生成器用独立临时文件重新加载自己生成的 XML，检查实际绑定，随后清理临时文件；
+不会将任意输入 XML 交给厂商反序列化器。还会核对精确信号集合、类型、句柄清零、
+图表轴组映射与绑定对象 GUID。厂商共享时间轴/样式可能合法重复序列化，
+不把它误判成采集项重复。
+
+`plan_scope_from_tmc` 可从 TMC 中选定的基础类型叶变量生成上述信号清单，
+数组和结构成员类型由导出元数据解析；缺失/歧义/不支持的项列入 `unresolved`。
+先检查 `ready`，再交给生成器。它不猜测目标地址或在线可访问性。
+
+保存时将返回的两份 UTF-8 文件放在同一新目录。厂商模型重新加载验证与图形界面
+打开、在线符号解析、实际采样是不同验收项，后面三项不能由离线结果代替。
+
+参考：[Beckhoff Scope API 模型层级](https://infosys.beckhoff.com/content/1033/te13xx_tc3_scopeview/5963582731.html)。
+
+## 增补已有模板
+
 `inspect_scope` 查看输入 `.tcscopex` XML 中的 `AdsAcquisition` 符号和类型。
 `create_scope_candidate` 从已有采集项克隆，生成包含新增 DataPool 采集项的候选 XML。
 该算法来自作者既有 Scope 符号添加脚本的模板克隆流程，公开版增加显式模板选择、缺失类型报告和文本接口。

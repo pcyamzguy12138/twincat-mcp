@@ -82,12 +82,12 @@ class Backend:
         try:
             result = subprocess.run([str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(script)],
                                     input=json.dumps(request, ensure_ascii=True), capture_output=True,
-                                    text=True, encoding="utf-8-sig", timeout=60, shell=False,
+                                    text=True, encoding="utf-8", errors="replace", timeout=60, shell=False,
                                     creationflags=subprocess.CREATE_NO_WINDOW)
         except subprocess.TimeoutExpired:
             raise RuntimeError("Read timed out after 60 seconds; bridge process was terminated") from None
         if result.returncode:
             raise RuntimeError("ADS bridge failed: " + (result.stderr or result.stdout).strip()[:2000])
-        snapshot = json.loads(result.stdout)
+        snapshot = json.loads(result.stdout.lstrip("\ufeff"))
         snapshot["demo"], snapshot["readOnly"] = False, True
         return snapshot

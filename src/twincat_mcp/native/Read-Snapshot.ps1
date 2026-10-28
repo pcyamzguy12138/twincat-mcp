@@ -2,6 +2,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$errorWriter = [IO.StreamWriter]::new([Console]::OpenStandardError(), [Text.UTF8Encoding]::new($false))
+$errorWriter.AutoFlush = $true
+[Console]::SetError($errorWriter)
 $transport = $null
 try {
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
