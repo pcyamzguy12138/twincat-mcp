@@ -21,6 +21,17 @@ TMC = '''<TcModuleClass><DataTypes>
 
 
 class TmcTest(unittest.TestCase):
+    def test_architecture_dependent_layout_is_not_guessed(self):
+        xml = TMC.replace('<BitSize>96</BitSize>', '<BitSize X64="128">96</BitSize>').replace('<BitOffs>64</BitOffs>', '<BitOffs X64="96">64</BitOffs>')
+        self.assertIsNone(TmcCatalog(xml).resolve('State')['bitSize'])
+        self.assertIsNone(TmcCatalog(xml).resolve('State')['members'][2]['bitOffset'])
+        x64 = TmcCatalog(xml.replace('<Module>', '<Module TargetPlatform="TwinCAT RT (x64)">'))
+        self.assertEqual(128, x64.resolve('State')['bitSize'])
+        self.assertEqual(96, x64.resolve('State')['members'][2]['bitOffset'])
+        x86 = TmcCatalog(xml.replace('<Module>', '<Module TargetPlatform="TwinCAT RT (x86)">'))
+        self.assertEqual(96, x86.resolve('State')['bitSize'])
+        self.assertEqual(64, x86.resolve('State')['members'][2]['bitOffset'])
+
     def test_page_filter_and_offline_evidence(self):
         result = inspect_tmc(TMC, limit=1)
         self.assertEqual(2, result["total"])

@@ -1,5 +1,38 @@
 # Validation
 
+## Version 0.2.0, 2026-10-28
+
+Environment: Windows 11, Python 3.12.14, MCP SDK 1.30.0, classic XAE shell DTE
+15.0 and Scope API 4.48.117.0. No controller was contacted during these tests.
+
+| Check | Evidence |
+| --- | --- |
+| Ordinary Python suite | 73 cases: 70 passed, 3 skipped (symlink privilege, opt-in Scope API and opt-in XAE build) |
+| Windows path containment | Real junction rejection passed; symbolic-link creation unavailable to the test user |
+| Native read-only protocol | 13 C# simulated transport/codec checks, plus bridge parser/forbidden API checks |
+| Installed Scope API | All 8 Scope tests passed, including native save/reload of 11 primitive types, 2 charts, 3 axes and Chinese labels |
+| Installed XAE compiler | All 5 compiler tests passed with integration enabled: task-linked synthetic structure/array project compiled and exported TMC; deliberately undefined identifier failed with file/line diagnostics; source hashes unchanged |
+| Package installation | Wheel 0.2.0 includes all four native assets; MCP stdio tests run against installed package with a child-process import-path assertion |
+| Recording | Deterministic frames, trigger/prebuffer, archive reopening, CSV escaping, errors/gaps, version change, stop, process cleanup and storage bounds |
+
+To run vendor integration checks separately (Windows, installed dependencies):
+
+```powershell
+$env:TWINCAT_MCP_TEST_SCOPE = '1'
+python -m unittest discover -s tests -p test_scope_project.py -v
+$env:TWINCAT_MCP_TEST_BUILD = '1'
+python -m unittest discover -s tests -p test_compiler.py -v
+```
+
+Qualification limits: no real PLC reads, live metadata browsing, runtime symbol
+resolution or Scope acquisition; no GUI opening; no online write/download/activation.
+Real x64 PLC compilation passed; x86 target, alternate IDEs and 4026 install
+layouts remain unqualified. The compiler uses an empty system around a copied
+PLC project, so original NC/I/O mappings and machine execution are not validated.
+Recordings are PC polling, not PLC-cycle or high-speed Scope-server acquisition.
+
+The remaining sections preserve earlier milestone evidence.
+
 ## Development expansion, 2026-10-28
 
 - 47 Python cases: 45 passed in the ordinary offline run; two opt-in/platform
@@ -19,10 +52,8 @@
   shared Scope time axes and automatic axis name suffixes. The returned group
   map records the actual vendor-assigned labels.
 
-Still pending: compilation integration, enhanced runtime diagnostics/recording,
-candidate file export, final installed-wheel and release audit. Scope GUI opening
-and live resolution/acquisition were not performed. This is milestone evidence,
-not completion of the full development roadmap.
+At this earlier milestone, compilation, enhanced diagnostics/recording and
+candidate export were still pending; the 0.2 section above supersedes that status.
 
 ## Initial release
 

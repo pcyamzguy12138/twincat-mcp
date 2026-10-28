@@ -20,6 +20,10 @@ dist/
 *.zip
 # Field projects, captures and binary artifacts
 captures/
+recordings/
+candidates/
+builds/
+*.jsonl
 output/
 outputs/
 Boot/

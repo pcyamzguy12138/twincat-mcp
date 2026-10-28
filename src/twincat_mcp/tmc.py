@@ -53,6 +53,9 @@ class TmcCatalog:
         if root.tag != "TcModuleClass":
             raise ValueError("Expected TcModuleClass TMC root")
         self.sha256 = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
+        platforms = {m.get('TargetPlatform', '') for m in root.findall('./Modules/Module')}
+        self.architecture = ('x64' if platforms and all('(x64)' in p for p in platforms) else
+                             'x86' if platforms and all('(x86)' in p for p in platforms) else None)
         self.types, self.guids, self.shortnames = {}, {}, {}
         for node in root.findall("./DataTypes/DataType"):
             ref = _ref(node.find("Name"))
@@ -77,13 +80,24 @@ class TmcCatalog:
                     if not reference["name"] and not reference["guid"]:
                         reference = _ref(symbol.find("Type"))
                     self.symbols.append({"name": name, "module": module_name,
-                        "area": value(area, "Name"), "bitSize": number(value(symbol, "BitSize")),
-                        "bitOffset": number(value(symbol, "BitOffs")),
+                        "area": value(area, "Name"), "bitSize": self._layout_number(symbol, "BitSize"),
+                        "bitOffset": self._layout_number(symbol, "BitOffs"),
                         "comment": value(symbol, "Comment", ""), "reference": reference,
                         "dimensions": _dimensions(symbol)})
         identities = [(s["module"], s["area"], s["name"].casefold()) for s in self.symbols]
         if len(set(identities)) != len(identities):
             raise ValueError("Duplicate TMC symbol in one module/data area")
+
+    def _layout_number(self, node, field):
+        item = node.find(field)
+        if item is None:
+            return None
+        if 'X64' in item.attrib:
+            if self.architecture is None:
+                return None  # Architecture-dependent metadata is not a universal layout.
+            if self.architecture == 'x64':
+                return number(item.get('X64'))
+        return number(item.text)
 
     def _lookup(self, ref):
         if ref.get("guid") in self.guids:
@@ -107,6 +121,20 @@ class TmcCatalog:
             return {"kind": "unresolved", "name": name, "bitSize": None, "scopeType": None,
                     "reason": "Pointer/reference target layout is not inline data"}
         upper = name.upper()
+        inline_array = re.fullmatch(r"ARRAY\s*\[([^\]]+)\]\s+OF\s+(.+)", name, re.I)
+        if inline_array:
+            dimensions = []
+            for bound in inline_array[1].split(","):
+                match = re.fullmatch(r"\s*(-?\d+)\s*\.\.\s*(-?\d+)\s*", bound)
+                if match is None or int(match[2]) < int(match[1]):
+                    raise ValueError("Invalid inline array bounds")
+                dimensions.append({"lower": int(match[1]), "count": int(match[2]) - int(match[1]) + 1})
+            if len(dimensions) > 8:
+                raise ValueError("TMC array dimension limit exceeded")
+            element = self.resolve(inline_array[2], _seen=_seen + (upper,), _budget=budget)
+            bits = element["bitSize"]
+            return {"kind": "array", "name": name, "dimensions": dimensions, "element": element,
+                    "scopeType": None, "bitSize": bits * math.prod(d["count"] for d in dimensions) if bits is not None else None}
         if upper in PRIMITIVES:
             bits, scope = PRIMITIVES[upper]
             return {"kind": "primitive", "name": name, "bitSize": bits, "scopeType": scope}
@@ -116,7 +144,7 @@ class TmcCatalog:
             capacity = int(string[2]) if string[2] else None
             return {"kind": "string", "name": name, "bitSize":
                     (capacity + 1) * (16 if string[1] == "WSTRING" else 8) if capacity is not None else None,
-                    "encoding": "utf-16-le" if string[1] == "WSTRING" else "unspecified", "scopeType": None}
+                    "encoding": "ucs-2-le" if string[1] == "WSTRING" else "unspecified", "scopeType": None}
         node = self._lookup(ref)
         if node is None:
             return {"kind": "unresolved", "name": name, "bitSize": None, "scopeType": None,
@@ -127,7 +155,7 @@ class TmcCatalog:
                     "scopeType": None, "reason": "Recursive type layout"}
         seen = _seen + (canonical.casefold(),)
         recurse = lambda reference: self.resolve(reference, _seen=seen, _budget=budget)
-        bits = number(value(node, "BitSize"))
+        bits = self._layout_number(node, "BitSize")
         base = _ref(node.find("BaseType"))
         dims = _dimensions(node)
         result = {"name": canonical, "bitSize": bits, "scopeType": None}
@@ -147,11 +175,11 @@ class TmcCatalog:
             for member in members:
                 layout = recurse(_ref(member.find("Type")))
                 dimensions = _dimensions(member)
-                member_bits = number(value(member, "BitSize"))
+                member_bits = self._layout_number(member, "BitSize")
                 if dimensions:
                     layout = {"kind": "array", "name": layout["name"], "bitSize": member_bits,
                               "scopeType": None, "element": layout, "dimensions": dimensions}
-                items.append({"name": value(member, "Name"), "bitOffset": number(value(member, "BitOffs")),
+                items.append({"name": value(member, "Name"), "bitOffset": self._layout_number(member, "BitOffs"),
                               "bitSize": member_bits, "type": layout})
             # Inherited layouts need explicit offsets too; do not invent base-class packing.
             return result | {"kind": "struct", "members": items,
@@ -230,7 +258,7 @@ def inspect_tmc(xml_text: str, name_filter: str = "*", type_filter: str = "*",
                 raise ValueError("Result exceeds 10000 symbols; narrow filters or disable expansion")
     return {"sourceSha256": catalog.sha256, "symbols": rows[offset:offset + limit], "total": len(rows),
             "nextOffset": offset + limit if offset + limit < len(rows) else None,
-            "typeCount": len(catalog.types), "onlineAvailability": "not_verified"}
+            "typeCount": len(catalog.types), "architecture": catalog.architecture, "onlineAvailability": "not_verified"}
 
 
 def inspect_tmc_type(xml_text: str, type_name: str) -> dict:
@@ -238,4 +266,4 @@ def inspect_tmc_type(xml_text: str, type_name: str) -> dict:
     if not isinstance(type_name, str) or not type_name or len(type_name) > 512:
         raise ValueError("Expected a type name of at most 512 characters")
     catalog = TmcCatalog(xml_text)
-    return {"sourceSha256": catalog.sha256, "type": catalog.resolve(type_name), "onlineAvailability": "not_verified"}
+    return {"sourceSha256": catalog.sha256, "type": catalog.resolve(type_name), "architecture": catalog.architecture, "onlineAvailability": "not_verified"}

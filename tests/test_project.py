@@ -1,4 +1,7 @@
 import hashlib
+import json
+import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -29,6 +32,47 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual("unavailable", rows[0]["status"])
         self.assertEqual("POU", rows[1]["object"]["kind"])
         self.assertEqual("POU", self.project.source("POUs/Main.TcPOU")["object"]["kind"])
+
+    def test_candidate_bundle_preserves_original_bytes_and_rejects_conflict(self):
+        original = self.root / 'POUs/Main.TcPOU'
+        data = b'\xef\xbb\xbf' + BASE.replace('\n', '\r\n').encode('utf-8')
+        original.write_bytes(data)
+        change = {'path': 'POUs/Main.TcPOU', 'expected_sha256': hashlib.sha256(data).hexdigest(),
+                  'edits': [{'section': 'implementation', 'replacement': 'counter := 123;'}]}
+        with tempfile.TemporaryDirectory() as output:
+            result = self.project.export([change], Path(output))
+            bundle = Path(result['directory'])
+            self.assertEqual(data, original.read_bytes())
+            self.assertEqual(data, (bundle / 'originals/POUs/Main.TcPOU').read_bytes())
+            candidate = (bundle / 'candidates/POUs/Main.TcPOU').read_bytes()
+            self.assertTrue(candidate.startswith(b'\xef\xbb\xbf'))
+            self.assertIn(b'counter := 123;', candidate)
+            manifest = json.loads((bundle / 'manifest.json').read_text())
+            self.assertEqual(hashlib.sha256(candidate).hexdigest(), manifest['files'][0]['candidateSha256'])
+            original.write_bytes(data + b' ')
+            with self.assertRaises(ValueError):
+                self.project.export([change], Path(output))
+            self.assertEqual(1, len(list(Path(output).iterdir())))
+        original.write_bytes(data)
+        with self.assertRaises(ValueError):
+            self.project.export([change], self.root / 'output')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows junction check')
+    def test_windows_junction_is_excluded(self):
+        link = self.root / 'Linked'
+        quote = lambda p: "'" + str(p).replace("'", "''") + "'"
+        command = 'New-Item -ItemType Junction -Path ' + quote(link) + ' -Target ' + quote(self.root / 'POUs') + ' | Out-Null'
+        result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', command], capture_output=True, text=True)
+        if result.returncode:
+            self.skipTest('Junction unavailable: ' + result.stderr[:200])
+        try:
+            self.assertEqual(['POUs/Main.TcPOU'], self.project.paths())
+            with self.assertRaises(ValueError):
+                self.project.read('Linked/Main.TcPOU')
+            with self.assertRaises(ValueError):
+                Project(link)
+        finally:
+            link.rmdir()  # Removes this test-owned junction only, not its target.
 
     def test_traversal_absolute_streams_and_wrong_extensions(self):
         for path in ["../secret.TcPOU", "C:\\secret.TcPOU", "\\\\host\\secret.TcPOU", "/secret.TcPOU", "POUs/Main.TcPOU:stream", "POUs/../POUs/Main.TcPOU", "POUs//Main.TcPOU", "POUs/Main.txt"]:

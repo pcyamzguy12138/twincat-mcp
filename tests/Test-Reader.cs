@@ -1,5 +1,5 @@
 namespace TwinCatReadOnly.Tests {
-    sealed class Fake : IReadTransport {
+    sealed class Fake : IReadTransport, ISymbolBrowser {
         public string Mode = "ok"; int versions;
         public void Dispose() { }
         public ushort[] State() {
@@ -7,6 +7,7 @@ namespace TwinCatReadOnly.Tests {
             return new ushort[] {5,0};
         }
         public uint Version() { versions++; return (uint)(Mode == "changed" ? versions : 7); }
+        public Symbol[] ListSymbols() { return new Symbol[] { Lookup("Demo.Value") }; }
         public Symbol Lookup(string name) {
             if (name == "Missing") throw new System.Exception("ADS 1808 (0x710)");
             return new Symbol { Name=name, Type=Mode == "unsupported" ? "STRUCT" : "REAL",
@@ -78,6 +79,25 @@ namespace TwinCatReadOnly.Tests {
             failed=false; try { Codec.ParseSymbol(new byte[29]); } catch { failed=true; }
             Assert(failed,"Truncated symbol entry");
             passed.Add("30-byte packed metadata layout and truncation validation");
+            var table=Codec.ParseSymbolTable(entry.ToArray(),1);
+            Assert(table.Length==1 && table[0].Name=="D.X" && table[0].Comment=="", "Symbol upload table");
+            foreach (uint count in new uint[]{0,2,100001}) {
+                failed=false; try { Codec.ParseSymbolTable(entry.ToArray(),count); } catch { failed=true; }
+                Assert(failed,"Symbol count/size mismatch must fail");
+            }
+            byte[] broken=entry.ToArray(); broken[broken.Length-1]=1;
+            failed=false; try { Codec.ParseSymbolTable(broken,1); } catch { failed=true; }
+            Assert(failed,"Comment terminator validation");
+            passed.Add("symbol upload count, bounds and terminator validation");
+            var metadata=new Reader(new Fake()).Describe(new string[]{"Missing","Demo.Value"},false);
+            Assert(metadata.VersionStable && metadata.Error==null && metadata.Symbols[0].Error!=null && metadata.Symbols[1].Name=="Demo.Value", "Metadata per-entry failure");
+            metadata=new Reader(new Fake()).Describe(new string[0],true);
+            Assert(metadata.VersionStable && metadata.Symbols.Length==1,"Metadata browsing");
+            metadata=new Reader(new Fake {Mode="changed"}).Describe(new string[0],true);
+            Assert(!metadata.VersionStable && metadata.Error!=null && metadata.Symbols.Length==0,"Unstable metadata discarded");
+            metadata=new Reader(new Fake {Mode="offline"}).Describe(new string[0],false);
+            Assert(metadata.Error!=null && metadata.AdsState==-1,"State query failure");
+            passed.Add("metadata browsing, per-entry errors, unstable version and offline state");
             return passed.ToArray();
         }
     }

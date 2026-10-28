@@ -6,7 +6,7 @@ using System.Text;
 
 namespace TwinCatReadOnly {
     public sealed class Symbol {
-        public string Name, Type;
+        public string Name, Type, Comment, Error;
         public uint Group, Offset, Size, DataType, Flags;
     }
     public sealed class Sample {
@@ -27,6 +27,14 @@ namespace TwinCatReadOnly {
         Symbol Lookup(string name);
         byte[] ReadBatch(Symbol[] symbols);
     }
+    public interface ISymbolBrowser { Symbol[] ListSymbols(); }
+    public sealed class CatalogSnapshot {
+        public int AdsState = -1, DeviceState = -1;
+        public uint VersionBefore, VersionAfter;
+        public bool VersionStable;
+        public string Error;
+        public Symbol[] Symbols = new Symbol[0];
+    }
     public static class Codec {
         public static Symbol ParseSymbol(byte[] data) {
             if (data == null || data.Length < 30) throw new Exception("Truncated ADS symbol entry");
@@ -35,11 +43,25 @@ namespace TwinCatReadOnly {
             int c = BitConverter.ToUInt16(data, 28);
             if (length > data.Length || length < 30 + n + 1 + t + 1 + c + 1)
                 throw new Exception("Invalid ADS symbol entry length");
-            if (data[30+n] != 0 || data[31+n+t] != 0) throw new Exception("Invalid symbol strings");
+            if (data[30+n] != 0 || data[31+n+t] != 0 || data[32+n+t+c] != 0) throw new Exception("Invalid symbol strings");
             return new Symbol { Name = Encoding.UTF8.GetString(data,30,n),
                 Type = Encoding.UTF8.GetString(data,31+n,t), Group = BitConverter.ToUInt32(data,4),
                 Offset = BitConverter.ToUInt32(data,8), Size = BitConverter.ToUInt32(data,12),
-                DataType = BitConverter.ToUInt32(data,16), Flags = BitConverter.ToUInt32(data,20) };
+                DataType = BitConverter.ToUInt32(data,16), Flags = BitConverter.ToUInt32(data,20),
+                Comment = Encoding.UTF8.GetString(data,32+n+t,c) };
+        }
+        public static Symbol[] ParseSymbolTable(byte[] data, uint count) {
+            if (data == null || data.Length > 16*1024*1024 || count > 100000) throw new Exception("Symbol table limit exceeded");
+            var result = new List<Symbol>(); int position = 0;
+            for (uint i=0; i<count; i++) {
+                if (position > data.Length-4) throw new Exception("Truncated symbol table header");
+                uint length = BitConverter.ToUInt32(data,position);
+                if (length < 33 || length > data.Length-position) throw new Exception("Invalid symbol table entry length");
+                byte[] entry = new byte[(int)length]; Array.Copy(data,position,entry,0,entry.Length);
+                result.Add(ParseSymbol(entry)); position += entry.Length;
+            }
+            if (position != data.Length) throw new Exception("Symbol table count/size mismatch");
+            return result.ToArray();
         }
         public static object Decode(Symbol s, byte[] b) {
             string type = s.Type.ToUpperInvariant();
@@ -91,6 +113,34 @@ namespace TwinCatReadOnly {
     public sealed class Reader {
         readonly IReadTransport transport;
         public Reader(IReadTransport transport) { this.transport = transport; }
+        public CatalogSnapshot Describe(string[] names, bool browse) {
+            if (names == null || names.Length > 128) throw new Exception("At most 128 explicit symbols");
+            var snapshot = new CatalogSnapshot();
+            try {
+                var state = transport.State(); snapshot.AdsState=state[0]; snapshot.DeviceState=state[1];
+                snapshot.VersionBefore = transport.Version();
+                if (browse) {
+                    var browser = transport as ISymbolBrowser;
+                    if (browser == null) throw new Exception("Transport does not support symbol browsing");
+                    snapshot.Symbols=browser.ListSymbols();
+                } else {
+                    var symbols = new List<Symbol>();
+                    foreach (var name in names) {
+                        if (String.IsNullOrWhiteSpace(name) || name.Length>512 || name.IndexOf('\0')>=0) throw new Exception("Invalid symbol name");
+                        try {
+                            var symbol=transport.Lookup(name);
+                            if (!String.Equals(symbol.Name,name,StringComparison.OrdinalIgnoreCase)) throw new Exception("Returned name mismatch");
+                            symbols.Add(symbol);
+                        } catch (Exception ex) { symbols.Add(new Symbol {Name=name,Error=ex.Message}); }
+                    }
+                    snapshot.Symbols=symbols.ToArray();
+                }
+                snapshot.VersionAfter=transport.Version();
+                snapshot.VersionStable=snapshot.VersionBefore==snapshot.VersionAfter;
+                if (!snapshot.VersionStable) throw new Exception("Symbol version changed during metadata query");
+            } catch (Exception ex) { snapshot.Error=ex.Message; snapshot.Symbols=new Symbol[0]; }
+            return snapshot;
+        }
         public Snapshot Capture(string[] names) {
             if (names == null || names.Length < 1 || names.Length > 128) throw new Exception("Use 1..128 symbols");
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -108,7 +158,7 @@ namespace TwinCatReadOnly {
                         Symbol s = transport.Lookup(names[i]); snap.Samples[i].Type = s.Type;
                         if (!String.Equals(s.Name,names[i],StringComparison.OrdinalIgnoreCase))
                             throw new Exception("Returned symbol name does not match request");
-                        if (s.Size < 1 || s.Size > 512 || (s.Flags & 0x16) != 0)
+                        if (s.Size < 1 || s.Size > 4096 || (s.Flags & 0x16) != 0)
                             throw new Exception("Unsupported bit-address, reference, interface, or oversized symbol");
                         symbols.Add(s); rows.Add(snap.Samples[i]);
                     } catch (Exception ex) { snap.Samples[i].Error = ex.Message; }
@@ -129,7 +179,7 @@ namespace TwinCatReadOnly {
     }
     // Uses the installed Beckhoff DLL. No ADS write/write-control, route mutation,
     // handle allocation, notification registration, PLC method call or download API.
-    public sealed class NativeTransport : IReadTransport {
+    public sealed class NativeTransport : IReadTransport, ISymbolBrowser {
         [StructLayout(LayoutKind.Sequential, Pack=1)]
         struct Address {
             [MarshalAs(UnmanagedType.ByValArray, SizeConst=6)] public byte[] NetId;
@@ -182,6 +232,18 @@ namespace TwinCatReadOnly {
             if (n == 4) return BitConverter.ToUInt32(b,0);
             throw new Exception("Invalid symbol version length: " + n);
         }
+        public Symbol[] ListSymbols() {
+            byte[] info = new byte[8]; uint actual;
+            Check(read(port,ref target,0xF00C,0,8,info,out actual));
+            if (actual!=8) throw new Exception("Invalid symbol upload info length");
+            uint count=BitConverter.ToUInt32(info,0), size=BitConverter.ToUInt32(info,4);
+            if (count>100000 || size>16*1024*1024) throw new Exception("Symbol table exceeds read limit");
+            if (size==0) return Codec.ParseSymbolTable(new byte[0],count);
+            byte[] data=new byte[(int)size];
+            Check(read(port,ref target,0xF00B,0,size,data,out actual));
+            if (actual!=size) throw new Exception("Truncated symbol upload");
+            return Codec.ParseSymbolTable(data,count);
+        }
         // ADS ReadWrite here sends ONLY the symbol name as a query, never a PLC value.
         public Symbol Lookup(string name) {
             byte[] request = Encoding.UTF8.GetBytes(name + "\0"), b = new byte[65536]; uint n;
@@ -192,7 +254,7 @@ namespace TwinCatReadOnly {
         // 0xF080 is SUMUP_READ: request bytes contain addresses and lengths only.
         public byte[] ReadBatch(Symbol[] symbols) {
             int size = symbols.Length*4; foreach (Symbol s in symbols) size = checked(size+(int)s.Size);
-            if (symbols.Length < 1 || symbols.Length > 128 || size > 66048) throw new Exception("Batch too large");
+            if (symbols.Length < 1 || symbols.Length > 128 || size > 524800) throw new Exception("Batch too large");
             byte[] b = new byte[size], request = Codec.BatchRequest(symbols); uint n;
             Check(query(port,ref target,0xF080,(uint)symbols.Length,(uint)b.Length,b,(uint)request.Length,request,out n));
             if (n != b.Length) throw new Exception("Truncated ADS batch read"); return b;

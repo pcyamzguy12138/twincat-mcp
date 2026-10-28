@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
 import os
 from pathlib import Path, PureWindowsPath
 import re
 import stat
+import tempfile
+import uuid
 
 from .source import inspect_source, preview_source_batch
 from .xmlutil import parse_xml
@@ -241,3 +244,49 @@ class Project:
                 raise ValueError("Source changed during preview; regenerate against current files")
         return {"files": results, "writtenToDisk": False,
                 "note": "All-or-error preview; no files saved. This is not a compiled project."}
+
+    def export(self, changes: list[dict], output_root: Path | None = None) -> dict:
+        """Save a separate patch bundle with originals, candidates and hashes; never apply it."""
+        preview = self.preview(changes)
+        if sum(len(row['xml'].encode('utf-8')) for row in preview['files']) > 16 * 1024 * 1024:
+            raise ValueError('Candidate output exceeds 16 MiB; use a smaller change set')
+        root = Path(output_root).absolute() if output_root is not None else Path(tempfile.mkdtemp(prefix='twincat-candidates-'))
+        for part in (root, *root.parents):
+            if part.exists() and _is_link(part):
+                raise ValueError('Candidate root must not contain links/reparse points')
+        root = root.resolve()
+        if root.is_relative_to(self.root) or self.root.is_relative_to(root):
+            raise ValueError('Candidate root must be separate from the source project tree')
+        root.mkdir(parents=True, exist_ok=True)
+        if sum(1 for _ in root.iterdir()) >= 128:
+            raise ValueError('Candidate root has 128 entries; archive old bundles elsewhere')
+        identifier = uuid.uuid4().hex
+        staging = root / ('.pending-' + identifier)
+        final = root / identifier
+        staging.mkdir()
+        manifest = {'id': identifier, 'kind': 'source_patch_bundle', 'compiled': False,
+                    'originalsModified': False, 'files': []}
+        try:
+            for row in preview['files']:
+                original, sha = self.read(row['path'])
+                if sha != row['sourceSha256']:
+                    raise ValueError('Source changed before candidate export')
+                data = row['xml'].encode('utf-8')
+                for folder, content in [('originals', original.encode('utf-8')), ('candidates', data)]:
+                    target = staging / folder / row['path']
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with target.open('xb') as stream:
+                        stream.write(content)
+                manifest['files'].append({'path': row['path'], 'sourceSha256': sha,
+                                          'candidateSha256': hashlib.sha256(data).hexdigest()})
+            for row in manifest['files']:
+                if self.read(row['path'])[1] != row['sourceSha256']:
+                    raise ValueError('Source changed during candidate export; bundle not finalized')
+            with (staging / 'manifest.json').open('x', encoding='utf-8') as stream:
+                json.dump(manifest, stream, ensure_ascii=False, indent=2)
+            staging.rename(final)
+        except Exception as exc:
+            # Keep incomplete output visibly separate; no destructive cleanup or source writes.
+            raise ValueError(f'Candidate export failed; incomplete staging retained at {staging}: {exc}') from exc
+        return manifest | {'directory': str(final), 'writtenToDisk': True,
+                           'note': 'Separate source patch bundle with originals and candidates; not a complete project or a compiled/downloadable artifact.'}

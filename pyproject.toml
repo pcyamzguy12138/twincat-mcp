@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twincat-mcp"
-version = "0.1.0"
-description = "Read-only TwinCAT ADS diagnostics exposed through a local MCP stdio server"
+version = "0.2.0"
+description = "TwinCAT engineering, Scope generation and read-only ADS diagnostics through local MCP"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

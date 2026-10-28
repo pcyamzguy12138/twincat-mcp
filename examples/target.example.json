@@ -1,5 +1,6 @@
 {
   "enabled": false,
+  "allowSymbolBrowse": false,
   "amsNetId": "0.0.0.0.0.0",
   "adsPort": 851,
   "timeoutMs": 1000,
